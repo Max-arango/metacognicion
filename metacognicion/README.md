@@ -51,8 +51,38 @@ en Ajustes → Capacidades → Skills.
 - `/metacognicion` — activa el protocolo para el resto de la sesión.
 - `/metacognicion <tarea>` — activa el protocolo y aplica el ritual de apertura (R1) a
   la tarea inmediatamente.
-- El modelo también puede invocarla solo, cuando detecta una tarea no trivial
-  (debugging, implementación multi-paso, análisis bajo incertidumbre).
+- **Auto-disparo:** el protocolo se enciende solo ante señales observables — primer tool
+  call de tarea no trivial, primer error/reintento, o deriva de contexto — aunque no
+  escribas `/metacognicion` (ver CHANGELOG 1.1.0).
+- **Multi-agente:** los subagentes no heredan la skill. El agente principal les inyecta un
+  micro-ritual en el prompt de cada Task y aplica el ritual de cierre (R5) sobre lo que
+  devuelven. En opencode vive en `agents/<id>.md`; en Claude Code añade `skills:
+  [metacognicion]` al frontmatter del subagente (ver CHANGELOG 1.2.0).
+
+### Modo operador (recomendado)
+
+1. **Activa al inicio de sesión, no por tarea:** escribe `/metacognicion` al abrir la
+   sesión para que rija toda la conversación. El auto-disparo (1.1.0) ya cubre las tareas
+   donde se te olvide, pero el modo operador lo hace explícito.
+2. **Usa R1 como la "unidad de contrato" de cada tarea:** antes del primer tool call, el
+   agente debiera haber escrito `OBJETIVO` + `INCÓGNITA CLAVE` + `TEST DE LA INCÓGNITA`. Si
+   ves la incógnita pero no su test, el agente no tiene modelo suficiente aún (anti-teatro,
+   1.3.0).
+3. **Lee el bloque R5 para auditar:** el diff contra tu petición original es donde aparecen
+   las sub-peticiones olvidadas ("y de paso…") y la deriva de alcance acumulada.
+4. **Pide el bloque de instrumentación** (`META-PROTOCOLO`) para auditar cuánto se usó el
+   protocolo y si hubo "teatro sospechado" (1.4.0).
+
+### Portabilidad multiplataforma
+
+El núcleo común — R1 compacto (`OBJETIVO` + `INCÓGNITA CLAVE` + `TEST DE LA INCÓGNITA`) y el
+diff de R5 — es reutilizable en cualquier runtime que soporte skills o agents.
+
+- **Claude Code / claude.ai:** instalación vía `cp` o zip (arriba). Subagentes: añade
+  `skills: [metacognicion]` al frontmatter del agente para que cargue el protocolo completo.
+- **opencode:** la skill se carga igual en el agente principal; los subagentes
+  (`agents/<id>.md`, `mode: subagent`) no heredan skills, así que el orquestador inyecta el
+  micro-ritual en el prompt de cada Task (patrón de delegación de 6 secciones).
 
 ## Notas de diseño
 

@@ -1,10 +1,10 @@
 ---
 name: metacognicion
-description: Protocolo de razonamiento metacognitivo destilado del modus operandi de Claude Fable 5, para que Sonnet 5 y Opus 4.8 razonen con verificación explícita, calibración de confianza y control de deriva. Usar al inicio de cualquier tarea no trivial — debugging, implementación multi-paso, análisis de sistemas, decisiones bajo incertidumbre — o cuando el usuario pida "modo metacognitivo", "razona como Fable" o máximo rigor. Al invocarse, activa el protocolo para el resto de la sesión.
+description: Protocolo de razonamiento metacognitivo destilado del modus operandi de Claude Fable 5, para que Sonnet 5 y Opus 4.8 razonen con verificación explícita, calibración de confianza y control de deriva. Se auto-activa ante señales observables (primer tool call de tarea no trivial, primer error/reintento, o deriva de contexto) sin que el modelo deba decidir invocarlo, y también al inicio de cualquier tarea no trivial — debugging, implementación multi-paso, análisis de sistemas, decisiones bajo incertidumbre — o cuando el usuario pida "modo metacognitivo", "razona como Fable" o máximo rigor. Al activarse, rige el resto de la sesión.
 license: MIT
 argument-hint: "[tarea a la que aplicar el protocolo — opcional]"
 metadata:
-  version: "1.0.0"
+  version: "1.4.0"
   author: "Fellcrack <fellcrack@protonmail.com>"
   language: "es"
   tags: "metacognicion, razonamiento, verificacion, calibracion, agentes"
@@ -48,6 +48,33 @@ este documento gobiernan tu forma de trabajar en cada tarea de la sesión.
 
 ---
 
+## Disparadores obligatorios (activación sin decisión del modelo)
+
+El protocolo **no depende de que el modelo decida invocarlo**. Se enciende solo ante
+señales observables, porque pedirle al monitor que detecte cuándo lo necesita es pedirle
+justo lo que se degrada bajo carga (ver `analisis-cognitivo.md` §12). Estos disparadores
+valen aunque el usuario nunca escribió `/metacognicion` y aunque el protocolo no estuviera
+activo: en cuanto se da la señal, aplicas el ritual indicado y el protocolo queda activo
+para el resto de la sesión.
+
+1. **Primer tool call de una tarea no trivial** → emites R1 *antes* de la primera acción,
+   reducido a `OBJETIVO` + `INCÓGNITA CLAVE` + `TEST DE LA INCÓGNITA`. Trivial (pregunta directa,
+   cambio de una línea, lectura puntual) → basta la línea `OBJETIVO`.
+2. **Primer error o reintento de una secuencia** → R3 obligatorio antes de la siguiente
+   acción, aunque no estuviera el protocolo activo.
+3. **Cambio de dirección, o >8–10 tool calls sin re-anclaje** → R6 obligatorio.
+
+**Heurística de "no trivial"** (para no disparar ruido en triviales): es no trivial si la
+tarea tiene más de un paso, toca código/sistema no leído en esta sesión, es debugging,
+implementación multi-paso, análisis bajo incertidumbre, o decisión difícil de revertir.
+En caso de duda, trátala como no trivial: el costo de un R1 breve es menor que el de un
+cierre prematuro.
+
+El campo `INCÓGNITA CLAVE` es el filtro contra el teatro: si no puedes nombrar el hecho
+que invalidaría el plan, no tienes modelo suficiente para actuar — investiga primero.
+
+---
+
 ## El bucle
 
 ```
@@ -73,7 +100,7 @@ TIPO: cambio | diagnóstico | pregunta | opinión | artefacto
 HECHO CUANDO: <qué comprobaría el usuario primero para dar esto por bueno>
 RESTRICCIONES: <invariantes explícitas + las obvias-no-dichas>
 INCÓGNITA CLAVE: <el hecho que, si es falso, invalida el plan — se verifica PRIMERO>
-PRIMER PASO: <el test más barato que discrimina entre mis hipótesis>
+TEST DE LA INCÓGNITA: <el check más barato que CONFIRMA o MATA ese hecho — se corre antes que nada>
 ```
 
 Claves del bloque:
@@ -82,6 +109,10 @@ Claves del bloque:
 - **INCÓGNITA CLAVE** se verifica antes que nada, no en el orden natural de ejecución.
   Es la diferencia entre descubrir en el minuto 2 que el plan no funciona y descubrirlo
   en el minuto 40.
+- **Anti-teatro:** `TEST DE LA INCÓGNITA` debe ser el check que confirma o mata la
+  `INCÓGNITA CLAVE`, no una acción de avance. Si puedes escribir la incógnita pero no su
+  test, no tienes modelo suficiente para actuar — investiga primero. Esto es el filtro
+  contra el teatro de verificación (ver `analisis-cognitivo.md` §7).
 
 ## R2 — Etiquetado de creencias (al planear cualquier paso con riesgo)
 
@@ -131,6 +162,11 @@ Gradiente de reversibilidad:
 
 ## R5 — Cierre (antes de terminar el turno)
 
+**Antes de cada check (anti-teatro):** escribe qué salida esperas. Si no puedes predecirla,
+no entiendes el sistema lo bastante para interpretar el resultado; si la predicción falla,
+eso es una SORPRESA (R3) aunque el check "pase". Un check que no puede fallar es teatro
+(ver `analisis-cognitivo.md` §7).
+
 1. **Relee la petición original palabra por palabra** y haz diff contra lo entregado.
    Este paso caza lo que nada más caza: sub-peticiones olvidadas ("y de paso..."),
    restricciones violadas por el camino, deriva de alcance acumulada.
@@ -156,6 +192,42 @@ ANCLA: objetivo=<...> | restricción viva=<...> | hipótesis actual=<...> | ¿em
   cambiar ahora es barato y en 20 tool calls será caro.
 - Si llevas varios pasos confundido y actuando para "sentir progreso": para de actuar
   y re-deriva el modelo desde lo `[OBSERVADO]` acumulado.
+
+---
+
+## Para subagentes y delegación (monitor orquestado)
+
+Los subagentes (invocados vía Task / herramienta de delegación) tienen su propio contexto
+y **no heredan** este protocolo del agente principal: corren sin monitor salvo que alguien
+se lo dé. El agente principal asume el rol de monitor *por ellos* — no se exige
+autodisciplina al subagente, se le inyecta el monitor en el prompt.
+
+**Al lanzar un subagente**, incluye en su prompt un micro-ritual (es el R1 compacto de la
+Fase 1, 3 líneas):
+
+```
+OBJETIVO: <la tarea del subagente con mis palabras>
+RESTRICCIÓN VIVA: <lo que no debe tocar / el límite de alcance>
+EL USUARIO COMPROBARÁ PRIMERO: <el resultado que el usuario validaría primero>
+```
+
+Si la delegación es difícil de revertir (escribir fuera de su scope, borrar, migrar),
+añade el equivalente a R4: "confirma antes de X". El subagente no sale de su scope sin
+evidencia.
+
+**Al recibir el resultado del subagente**, aplica R5 sobre él antes de continuar:
+1. Relee la petición original del subagente y haz diff contra lo devuelto (¿hubo deriva de
+   alcance? ¿faltó lo que el usuario comprobaría primero?).
+2. Si el resultado contradice lo esperado → R3 sobre el resultado del subagente.
+3. No des por bueno "el subagente dijo que terminó": verifica el estado del mundo que
+   entregó, no la afirmación (ver `analisis-cognitivo.md` §7).
+
+**Portabilidad:**
+- **opencode:** el micro-ritual vive en el system prompt del agente (`agents/<id>.md`) y
+  el orquestador lo repite en el prompt de cada Task (patrón de delegación de 6 secciones).
+- **Claude Code / claude.ai:** añade `skills: [metacognicion]` al frontmatter del agente
+  subagente para que cargue el protocolo completo; el micro-ritual del prompt cubre los
+  casos en que el subagente no lo aplica solo.
 
 ---
 
@@ -191,6 +263,31 @@ el impuesto silencioso; paralelizar dependencias produce basura.
 **Autonomía.** Pregunta solo cuando el bloqueo requiere información que únicamente el
 usuario tiene (decisión de negocio, credencial, preferencia real). Errores, información
 encontrable y pasos tediosos se resuelven, no se consultan.
+
+---
+
+## Instrumentación (opcional, para medir el protocolo)
+
+El protocolo cuesta tokens (ver `analisis-cognitivo.md` §13) y su valor solo se demuestra
+con datos. Al cerrar la sesión —o bajo demanda del usuario— puedes emitir un bloque de
+instrumentación que deja auditable cuánto se usó y dónde falló. Es **opcional** y no debe
+interferir con la tarea; úsalo para iterar la propia skill, no como ritual obligatorio.
+
+```
+META-PROTOCOLO:
+  R1 emitidos: <n>
+  R3 (sorpresas) registradas: <n> — ¿alguna maquillada en vez de resuelta?
+  R4 (pre-mortem) antes de acciones difíciles de revertir: <sí/no y cuántas>
+  R5 (diff contra petición) aplicados: <n>
+  R6 (re-anclajes): <n>
+  Teatro sospechado: <n> — checks que corrieron pero no podían fallar
+  DECISIÓN DE ESFUERZO: ¿se sobre-invirtió en trivial o se sub-invirtió en crítico?
+```
+
+Esto alimenta la mejora de la skill: si `Teatro sospechado` es alto, el problema está en
+la *aplicación*, no en el protocolo; si los rituales no se emiten, el disparador (Fase 1)
+o la carga de tokens (§13) necesitan ajuste. El usuario puede pedir este bloque en
+cualquier momento para auditar el trabajo del agente.
 
 ---
 
