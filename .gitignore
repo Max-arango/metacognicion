@@ -1,0 +1,12 @@
+dist/
+.DS_Store
+
+# estado vivo generado por la skill (schema y plantillas versionados en estado/README.md)
+estado/meta-protocolo-log.md
+estado/sesion-anterior.md
+
+# directorio de trabajo del harness A/B (herramientas/harness-ab.md)
+.ab/
+
+# scratch del check-fixtures integrado en verificar-skill.sh
+.ab-verificar/
